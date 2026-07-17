@@ -2,7 +2,7 @@ English | [中文](./README.md)
 
 > **⚠️ Legal Notice**
 >
-> DriftBottle is proprietary software. All rights reserved by the DriftBottle Team.
+> DriftBottle is proprietary software. All rights reserved by chaos-bai84.
 >
 > This repository is provided solely for portfolio review and personal reference purposes. **Any form of commercial use, reproduction, distribution, modification, or development of competing products based on this code is strictly prohibited.**
 >
@@ -51,8 +51,8 @@ This is a **public showcase repository** intended for:
 
 ## Contact
 
-For business cooperation, licensing, or other inquiries, please contact the repository owner.
+For business cooperation, licensing, or other inquiries, please contact: choas.bai84@gmail.com
 
 ---
 
-© 2026 DriftBottle Team. All Rights Reserved.
+© 2026 chaos-bai84. All Rights Reserved.

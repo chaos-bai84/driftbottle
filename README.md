@@ -2,7 +2,7 @@
 
 > **⚠️ 版权声明 / Legal Notice**
 >
-> DriftBottle 是专有软件（Proprietary Software），版权归 DriftBottle Team 所有。
+> DriftBottle 是专有软件（Proprietary Software），版权归 chaos-bai84 所有。
 >
 > 本仓库仅用于作品集展示和个人参考，**禁止**任何形式的商业使用、复制、分发、修改或基于本代码开发竞争产品。
 >
@@ -51,8 +51,8 @@
 
 ## 联系我们
 
-如需商务合作、授权使用或其他咨询，请联系仓库所有者。
+如需商务合作、授权使用或其他咨询，请联系：choas.bai84@gmail.com
 
 ---
 
-© 2026 DriftBottle Team. All Rights Reserved.
+© 2026 chaos-bai84. All Rights Reserved.
