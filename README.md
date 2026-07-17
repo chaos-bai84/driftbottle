@@ -1,3 +1,5 @@
+[English](./README_EN.md) | 中文
+
 > **⚠️ 版权声明 / Legal Notice**
 >
 > DriftBottle 是专有软件（Proprietary Software），版权归 DriftBottle Team 所有。
