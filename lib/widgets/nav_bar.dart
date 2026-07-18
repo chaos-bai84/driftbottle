@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 
 /// 底部导航栏组件
 /// 配合主题中的 bottomNavigationBarTheme 样式
@@ -17,21 +18,22 @@ class NavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return BottomNavigationBar(
       currentIndex: currentIndex,
       backgroundColor: const Color(0xE6023E8A),
-      items: const [
+      items: [
         BottomNavigationBarItem(
-          icon: Icon(Icons.waves),
-          label: '海洋',
+          icon: const Icon(Icons.waves),
+          label: l10n.oceanTab,
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.chat_bubble_outline),
-          label: '聊天',
+          icon: const Icon(Icons.chat_bubble_outline),
+          label: l10n.chatTab,
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.person_outline),
-          label: '我的',
+          icon: const Icon(Icons.person_outline),
+          label: l10n.profileTab,
         ),
       ],
       onTap: (index) => _onItemTapped(context, index),

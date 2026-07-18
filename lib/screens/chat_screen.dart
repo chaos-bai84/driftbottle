@@ -6,12 +6,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
+import '../l10n/app_localizations.dart';
 import '../models/bottle.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../providers/user_provider.dart';
 import '../services/chat_service.dart';
+import '../services/report_service.dart';
 import '../services/supabase_service.dart';
+import '../widgets/report_dialog.dart';
 
 /// 聊天页面
 class ChatScreen extends StatefulWidget {
@@ -38,13 +41,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Conversation? _conversation;
 
   /// 对方昵称
-  String _partnerNickname = '匿名';
+  String _partnerNickname = '';
 
   /// 对方国家名称
   String? _partnerCountry;
-
-  /// 对方语言
-  String _partnerLanguage = 'zh';
 
   /// 是否正在加载
   bool _isLoading = true;
@@ -102,11 +102,9 @@ class _ChatScreenState extends State<ChatScreen> {
       if (currentUser != null) {
         _partnerNickname = conversation.getPartnerNickname(currentUser.id);
         _partnerCountry = conversation.getPartnerCountryName(currentUser.id);
-        _partnerLanguage = conversation.getPartnerLanguage(currentUser.id);
       } else {
         _partnerNickname = conversation.user1Nickname;
         _partnerCountry = conversation.user1CountryName;
-        _partnerLanguage = conversation.user1Language;
       }
       await _loadMessages();
       _subscribeMessages();
@@ -123,7 +121,6 @@ class _ChatScreenState extends State<ChatScreen> {
       final bottle = args['bottle'] as Bottle;
       _partnerNickname = bottle.senderNickname;
       _partnerCountry = bottle.senderCountryName;
-      _partnerLanguage = bottle.senderLanguage;
       setState(() => _isCreatingConversation = true);
 
       final conversation = await _getOrCreateConversation(bottle);
@@ -185,6 +182,9 @@ class _ChatScreenState extends State<ChatScreen> {
         'last_sender_id': null,
         'unread_count': 0,
         'status': 'active',
+        'expires_at': DateTime.now()
+            .add(const Duration(days: 7))
+            .toIso8601String(),
       }).select().single();
 
       return Conversation.fromJson(response);
@@ -217,22 +217,26 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageSubscription = _chatService.subscribeToMessages(
       conversationId: _conversation!.id,
       onNewMessage: (message) {
-        // 避免重复添加
-        if (_messages.any((m) => m.id == message.id)) {
+        if (!mounted) return;
+        // 已存在该消息：更新字段（如 is_read 状态变化）
+        final index = _messages.indexWhere((m) => m.id == message.id);
+        if (index != -1) {
+          setState(() {
+            _messages[index] = message;
+          });
           return;
         }
-        if (mounted) {
-          setState(() {
-            _messages.add(message);
-          });
-          _scrollToBottom();
-          // 如果是对方发的消息，标记为已读
-          final currentUser =
-              context.read<UserProvider>().currentUser;
-          if (currentUser != null &&
-              message.senderId != currentUser.id) {
-            _markAsRead();
-          }
+        // 新消息：添加到列表
+        setState(() {
+          _messages.add(message);
+        });
+        _scrollToBottom();
+        // 如果是对方发的消息，标记为已读
+        final currentUser =
+            context.read<UserProvider>().currentUser;
+        if (currentUser != null &&
+            message.senderId != currentUser.id) {
+          _markAsRead();
         }
       },
     );
@@ -264,6 +268,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 发送消息
   Future<void> _sendMessage() async {
+    final l10n = AppLocalizations.of(context)!;
     final content = _messageController.text.trim();
     if (content.isEmpty) return;
 
@@ -272,15 +277,17 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _isSending = true);
 
-    final message = await _chatService.sendMessage(
+    final result = await _chatService.sendMessage(
       conversationId: _conversation!.id,
       senderId: currentUser.id,
       content: content,
       senderNickname: currentUser.nickname,
       sourceLanguage: currentUser.language,
+      senderCountryCode: currentUser.countryCode,
     );
 
-    if (message != null) {
+    if (result.success && result.message != null) {
+      final message = result.message!;
       // 避免重复添加（实时订阅可能已经添加）
       if (!_messages.any((m) => m.id == message.id)) {
         setState(() {
@@ -292,7 +299,9 @@ class _ChatScreenState extends State<ChatScreen> {
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('发送失败，请重试')),
+          SnackBar(
+            content: Text(result.errorMessage ?? l10n.operationFailed),
+          ),
         );
       }
     }
@@ -304,6 +313,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       decoration: getOceanBackground(),
       child: Scaffold(
@@ -314,7 +324,7 @@ class _ChatScreenState extends State<ChatScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                _partnerNickname,
+                _partnerNickname.isEmpty ? l10n.anonymous : _partnerNickname,
                 style: const TextStyle(fontSize: 16),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -365,6 +375,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 构建空状态
   Widget _buildEmptyState() {
+    final l10n = AppLocalizations.of(context)!;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -376,7 +387,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            '开始对话吧',
+            l10n.startChat,
             style: Theme.of(context).textTheme.bodyLarge,
           ),
         ],
@@ -386,6 +397,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 显示消息操作菜单（长按）
   Future<void> _showMessageOptions(Message message) async {
+    final l10n = AppLocalizations.of(context)!;
     final currentUser = context.read<UserProvider>().currentUser;
     if (currentUser == null) return;
 
@@ -417,12 +429,12 @@ class _ChatScreenState extends State<ChatScreen> {
               if (canTranslate)
                 ListTile(
                   leading: const Icon(Icons.translate, color: textPrimary),
-                  title: const Text(
-                    '翻译这条消息',
-                    style: TextStyle(color: textPrimary),
+                  title: Text(
+                    l10n.translateThisMessage,
+                    style: const TextStyle(color: textPrimary),
                   ),
                   subtitle: Text(
-                    '消耗 1 次翻译次数（今日剩余 ${context.read<UserProvider>().remainingTranslateCount} 次）',
+                    l10n.translateCost(context.read<UserProvider>().remainingTranslateCount),
                     style: const TextStyle(color: textSecondary, fontSize: 12),
                   ),
                   onTap: () => Navigator.pop(context, 'translate'),
@@ -430,11 +442,20 @@ class _ChatScreenState extends State<ChatScreen> {
               if (isMe)
                 ListTile(
                   leading: const Icon(Icons.delete, color: Colors.redAccent),
-                  title: const Text(
-                    '删除消息',
-                    style: TextStyle(color: Colors.redAccent),
+                  title: Text(
+                    l10n.deleteMessage,
+                    style: const TextStyle(color: Colors.redAccent),
                   ),
                   onTap: () => Navigator.pop(context, 'delete'),
+                ),
+              if (!isMe)
+                ListTile(
+                  leading: const Icon(Icons.flag_outlined, color: Colors.redAccent),
+                  title: Text(
+                    l10n.reportUser,
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
+                  onTap: () => Navigator.pop(context, 'report'),
                 ),
               const SizedBox(height: 8),
             ],
@@ -447,11 +468,67 @@ class _ChatScreenState extends State<ChatScreen> {
       await _translateMessage(message);
     } else if (result == 'delete') {
       await _deleteMessage(message);
+    } else if (result == 'report') {
+      await _reportUserFromMessage(message);
     }
+  }
+
+  /// 从消息发起举报
+  Future<void> _reportUserFromMessage(Message message) async {
+    final l10n = AppLocalizations.of(context)!;
+    final currentUser = context.read<UserProvider>().currentUser;
+    if (currentUser == null || _conversation == null) return;
+
+    // 对方ID = 对话中非当前用户的那一方
+    final partnerId = _conversation!.user1Id == currentUser.id
+        ? _conversation!.user2Id
+        : _conversation!.user1Id;
+
+    if (partnerId.isEmpty) return;
+
+    // 先检查是否已举报过该用户
+    final reportService = ReportService();
+    final alreadyReported = await reportService.hasReported(
+      reporterId: currentUser.id,
+      targetType: ReportTargetType.user,
+      targetId: partnerId,
+    );
+
+    if (!mounted) return;
+
+    if (alreadyReported) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.alreadyReported)),
+      );
+      return;
+    }
+
+    // 消息摘要用于描述
+    final messageSummary = message.content.length > 30
+        ? '${message.content.substring(0, 30)}...'
+        : message.content;
+    final description = '$_partnerNickname（消息：$messageSummary）';
+
+    final success = await showReportDialogAndSubmit(
+      context: context,
+      reporterId: currentUser.id,
+      reportedId: partnerId,
+      targetType: ReportTargetType.user,
+      targetId: partnerId,
+      targetDescription: description,
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success ? l10n.reportSubmitted : l10n.operationFailed),
+      ),
+    );
   }
 
   /// 翻译单条消息
   Future<void> _translateMessage(Message message) async {
+    final l10n = AppLocalizations.of(context)!;
     final userProvider = context.read<UserProvider>();
     final currentUser = userProvider.currentUser;
     if (currentUser == null) return;
@@ -459,7 +536,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (userProvider.remainingTranslateCount <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('今日翻译次数已用完')),
+          SnackBar(content: Text(l10n.translateLimitReached)),
         );
       }
       return;
@@ -492,7 +569,7 @@ class _ChatScreenState extends State<ChatScreen> {
         userProvider.refreshQuotas();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('翻译失败，可能是次数已用完或网络问题')),
+          SnackBar(content: Text(l10n.translateFailed)),
         );
       }
     }
@@ -500,6 +577,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 删除单条消息
   Future<void> _deleteMessage(Message message) async {
+    final l10n = AppLocalizations.of(context)!;
     final success = await _chatService.deleteMessage(messageId: message.id);
     if (success && mounted) {
       setState(() {
@@ -507,13 +585,14 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('删除失败，请重试')),
+        SnackBar(content: Text(l10n.operationFailed)),
       );
     }
   }
 
   /// 构建单条消息
   Widget _buildMessageItem(Message message) {
+    final l10n = AppLocalizations.of(context)!;
     final currentUser = context.read<UserProvider>().currentUser;
     final isMe = currentUser != null && message.senderId == currentUser.id;
 
@@ -538,7 +617,7 @@ class _ChatScreenState extends State<ChatScreen> {
             border: isMe ? null : Border.all(color: cardBorderColor),
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               // 原文内容
               Text(
@@ -560,14 +639,28 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
               ],
-              // 可翻译提示
-              if (message.translatedContent == null ||
-                  message.translatedContent!.isEmpty) ...[
+              // 可翻译提示（仅对方消息显示）
+              if (!isMe &&
+                  (message.translatedContent == null ||
+                      message.translatedContent!.isEmpty)) ...[
                 const SizedBox(height: 4),
                 Text(
-                  '长按翻译',
+                  l10n.longPressToTranslate,
                   style: TextStyle(
-                    color: isMe ? Colors.white38 : textSecondary.withValues(alpha: 0.5),
+                    color: textSecondary.withValues(alpha: 0.5),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+              // 已读状态（仅自己发的消息显示）
+              if (isMe) ...[
+                const SizedBox(height: 4),
+                Text(
+                  message.isRead ? l10n.read : l10n.unread,
+                  style: TextStyle(
+                    color: message.isRead
+                        ? Colors.white60
+                        : Colors.white.withValues(alpha: 0.4),
                     fontSize: 11,
                   ),
                 ),
@@ -581,6 +674,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 构建底部输入栏
   Widget _buildInputBar() {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       decoration: BoxDecoration(
@@ -597,7 +691,7 @@ class _ChatScreenState extends State<ChatScreen> {
               maxLines: 4,
               style: const TextStyle(color: textPrimary),
               decoration: InputDecoration(
-                hintText: '输入消息...',
+                hintText: l10n.messageHint,
                 hintStyle: const TextStyle(color: textHint),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 14,

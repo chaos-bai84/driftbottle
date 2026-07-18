@@ -6,8 +6,39 @@ import 'dart:async';
 import '../config/constants.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
+import 'filter_service.dart';
 import 'supabase_service.dart';
 import 'translation_service.dart';
+
+/// 发送消息操作结果
+class SendMessageResult {
+  /// 发送成功的消息（失败时为null）
+  final Message? message;
+
+  /// 错误信息（成功时为null）
+  final String? errorMessage;
+
+  /// 是否成功
+  final bool success;
+
+  const SendMessageResult._({
+    this.message,
+    this.errorMessage,
+    required this.success,
+  });
+
+  /// 成功结果
+  factory SendMessageResult.success(Message message) => SendMessageResult._(
+        message: message,
+        success: true,
+      );
+
+  /// 失败结果
+  factory SendMessageResult.failure(String message) => SendMessageResult._(
+        errorMessage: message,
+        success: false,
+      );
+}
 
 /// 聊天服务类
 class ChatService {
@@ -52,19 +83,38 @@ class ChatService {
   }
 
   /// 发送消息（仅发送原文，不自动翻译）
+  ///
+  /// 在写入数据库前会先进行内容安全检测：
+  /// - 敏感词检测（色情、暴力、违法等）
+  /// - 联系方式与导流信息检测（邮箱、URL、IP、手机号、社交平台关键词）
+  /// - 根据发送者国家/语言应用地区化规则
+  ///
   /// [conversationId] 对话ID
   /// [senderId] 发送者ID
   /// [content] 消息内容
   /// [senderNickname] 发送者昵称
   /// [sourceLanguage] 发送者语言
-  /// 返回发送的消息
-  Future<Message?> sendMessage({
+  /// [senderCountryCode] 发送者国家代码（用于地区化规则）
+  /// 返回发送结果，包含消息或错误信息
+  Future<SendMessageResult> sendMessage({
     required String conversationId,
     required String senderId,
     required String content,
     required String senderNickname,
     required String sourceLanguage,
+    String? senderCountryCode,
   }) async {
+    // 综合安全检测：敏感词 + 联系方式
+    final safety = FilterService.checkTextSafety(
+      text: content,
+      countryCode: senderCountryCode,
+      language: sourceLanguage,
+    );
+
+    if (!safety.isSafe) {
+      return SendMessageResult.failure(safety.errorMessage(sourceLanguage));
+    }
+
     final client = SupabaseService.instance.client;
 
     try {
@@ -90,9 +140,23 @@ class ChatService {
         });
       } catch (_) {}
 
-      return Message.fromJson(response);
+      return SendMessageResult.success(Message.fromJson(response));
     } catch (e) {
-      return null;
+      return SendMessageResult.failure(_networkErrorMessage(sourceLanguage));
+    }
+  }
+
+  /// 根据用户语言返回网络错误消息
+  String _networkErrorMessage(String language) {
+    switch (language.toLowerCase()) {
+      case 'en':
+        return 'Failed to send, please check your network';
+      case 'ja':
+        return '送信に失敗しました。ネットワークを確認してください';
+      case 'ko':
+        return '전송 실패, 네트워크를 확인해 주세요';
+      default:
+        return '发送失败，请检查网络后重试';
     }
   }
 
@@ -286,7 +350,7 @@ class ChatService {
 
   /// 获取用户的对话列表
   /// [userId] 当前用户ID
-  /// 返回对话列表，按最后消息时间降序
+  /// 返回未过期的活跃对话列表，按最后消息时间降序
   Future<List<Conversation>> getConversations({
     required String userId,
   }) async {
@@ -298,6 +362,7 @@ class ChatService {
           .select()
           .or('user1_id.eq.$userId,user2_id.eq.$userId')
           .eq('status', 'active')
+          .gt('expires_at', DateTime.now().toIso8601String())
           .order('last_message_at', ascending: false);
 
       return (response as List)

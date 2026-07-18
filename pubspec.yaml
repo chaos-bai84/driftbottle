@@ -9,10 +9,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.8
   supabase_flutter: ^2.8.3
   provider: ^6.1.2
-  intl: ^0.19.0
+  intl: ^0.20.2
   uuid: ^4.5.1
   google_fonts: ^6.2.1
   shared_preferences: ^2.3.4
@@ -27,3 +29,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  generate: true

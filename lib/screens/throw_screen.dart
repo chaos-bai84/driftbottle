@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../config/constants.dart';
+import '../l10n/app_localizations.dart';
 import '../providers/user_provider.dart';
 import '../providers/bottle_provider.dart';
 
@@ -38,12 +39,13 @@ class _ThrowScreenState extends State<ThrowScreen> {
 
   /// 扔瓶子操作
   Future<void> _onThrowBottle() async {
+    final l10n = AppLocalizations.of(context)!;
     final content = _contentController.text.trim();
 
     // 校验内容长度
     if (content.length < _minChars) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('内容至少需要$_minChars个字')),
+        SnackBar(content: Text(l10n.contentMinLength(_minChars))),
       );
       return;
     }
@@ -54,7 +56,7 @@ class _ThrowScreenState extends State<ThrowScreen> {
     // 校验剩余次数
     if (userProvider.remainingThrowCount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('今日扔瓶子次数已用完')),
+        SnackBar(content: Text(l10n.throwLimitReached)),
       );
       return;
     }
@@ -62,7 +64,7 @@ class _ThrowScreenState extends State<ThrowScreen> {
     final currentUser = userProvider.currentUser;
     if (currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先完成登录')),
+        SnackBar(content: Text(l10n.pleaseLogin)),
       );
       return;
     }
@@ -83,7 +85,7 @@ class _ThrowScreenState extends State<ThrowScreen> {
     if (success) {
       // 成功提示
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('瓶子已扔进大海')),
+        SnackBar(content: Text(l10n.bottleThrownSuccess)),
       );
       // 刷新配额
       userProvider.refreshQuotas();
@@ -95,7 +97,7 @@ class _ThrowScreenState extends State<ThrowScreen> {
       // 失败提示
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(bottleProvider.message ?? '发送失败，请重试'),
+          content: Text(bottleProvider.message ?? l10n.operationFailed),
         ),
       );
     }
@@ -103,6 +105,7 @@ class _ThrowScreenState extends State<ThrowScreen> {
 
   /// 切换话题标签选中状态
   void _toggleTag(String tag) {
+    final l10n = AppLocalizations.of(context)!;
     setState(() {
       if (_selectedTags.contains(tag)) {
         _selectedTags.remove(tag);
@@ -110,7 +113,7 @@ class _ThrowScreenState extends State<ThrowScreen> {
         _selectedTags.add(tag);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('最多选择3个话题标签')),
+          SnackBar(content: Text(l10n.maxTagsHint)),
         );
       }
     });
@@ -118,13 +121,14 @@ class _ThrowScreenState extends State<ThrowScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       decoration: getOceanBackground(),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         resizeToAvoidBottomInset: true,
         appBar: AppBar(
-          title: const Text('写漂流瓶'),
+          title: Text(l10n.writeBottleTitle),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () => Navigator.pop(context),
@@ -138,8 +142,8 @@ class _ThrowScreenState extends State<ThrowScreen> {
               final isNew = userProvider.isNewUser;
               final limit = isNew ? newUserThrowLimit : dailyThrowLimit;
               final quotaHint = isNew
-                  ? '新用户24小时内可扔 $remaining/$limit 次，24小时后恢复 $dailyThrowLimit 次'
-                  : '今日剩余可扔 $remaining/$limit 次';
+                  ? l10n.throwQuotaHintNew(remaining, limit, dailyThrowLimit)
+                  : l10n.throwQuotaHint(remaining, limit);
 
               return SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
@@ -193,10 +197,10 @@ class _ThrowScreenState extends State<ThrowScreen> {
                         textInputAction: TextInputAction.newline,
                         style: const TextStyle(color: textPrimary),
                         scrollPadding: const EdgeInsets.only(bottom: 120),
-                        decoration: const InputDecoration(
-                          hintText: '写下你想说的话，投入大海吧...',
+                        decoration: InputDecoration(
+                          hintText: l10n.writeBottleContent,
                           border: InputBorder.none,
-                          counterStyle: TextStyle(color: textSecondary),
+                          counterStyle: const TextStyle(color: textSecondary),
                         ),
                       ),
                     ),
@@ -249,7 +253,7 @@ class _ThrowScreenState extends State<ThrowScreen> {
                                 strokeWidth: 2,
                               ),
                             )
-                          : const Text('扔进大海'),
+                          : Text(l10n.throwIntoOcean),
                     ),
                     const SizedBox(height: 20),
                   ],

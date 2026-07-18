@@ -58,6 +58,9 @@ class Conversation {
   /// 创建时间
   final DateTime createdAt;
 
+  /// 过期时间（默认创建后 7 天）
+  final DateTime? expiresAt;
+
   const Conversation({
     required this.id,
     required this.bottleId,
@@ -77,6 +80,7 @@ class Conversation {
     this.unreadCount = 0,
     this.status = 'active',
     required this.createdAt,
+    this.expiresAt,
   });
 
   /// 根据当前用户ID获取对方的昵称
@@ -140,6 +144,9 @@ class Conversation {
       unreadCount: json['unread_count'] as int? ?? 0,
       status: json['status'] as String? ?? 'active',
       createdAt: DateTime.parse(json['created_at'] as String),
+      expiresAt: json['expires_at'] != null
+          ? DateTime.parse(json['expires_at'] as String)
+          : null,
     );
   }
 
@@ -164,6 +171,7 @@ class Conversation {
       'unread_count': unreadCount,
       'status': status,
       'created_at': createdAt.toIso8601String(),
+      'expires_at': expiresAt?.toIso8601String(),
     };
   }
 
@@ -187,6 +195,7 @@ class Conversation {
     int? unreadCount,
     String? status,
     DateTime? createdAt,
+    DateTime? expiresAt,
   }) {
     return Conversation(
       id: id ?? this.id,
@@ -207,6 +216,7 @@ class Conversation {
       unreadCount: unreadCount ?? this.unreadCount,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
+      expiresAt: expiresAt ?? this.expiresAt,
     );
   }
 }

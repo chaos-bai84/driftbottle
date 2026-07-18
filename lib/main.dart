@@ -3,9 +3,11 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'config/theme.dart';
+import 'l10n/app_localizations.dart';
 import 'providers/user_provider.dart';
 import 'providers/bottle_provider.dart';
 import 'services/supabase_service.dart';
@@ -14,6 +16,8 @@ import 'screens/throw_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/age_verification_screen.dart';
+import 'screens/my_bottles_screen.dart';
 
 void main() async {
   // 确保Flutter绑定初始化
@@ -40,30 +44,99 @@ class DriftBottleApp extends StatelessWidget {
           create: (_) => BottleProvider(),
         ),
       ],
-      child: MaterialApp(
-        title: 'DriftBottle',
-        debugShowCheckedModeBanner: false,
-        theme: getAppTheme(),
-        initialRoute: '/',
-        routes: {
-          '/': (context) => const SplashScreen(),
-          '/ocean': (context) => const OceanScreen(),
-          '/throw': (context) => const ThrowScreen(),
-          '/chat': (context) => const ChatScreen(),
-          '/chats': (context) => const ChatListScreen(),
-          '/profile': (context) => const ProfileScreen(),
+      child: Consumer<UserProvider>(
+        builder: (context, userProvider, child) {
+          return MaterialApp(
+            title: 'DriftBottle',
+            debugShowCheckedModeBanner: false,
+            theme: getAppTheme(),
+            locale: userProvider.currentLocale,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            supportedLocales: const [
+              Locale('zh'),
+              Locale('en'),
+              Locale('ja'),
+              Locale('ko'),
+            ],
+            initialRoute: '/',
+            routes: {
+              '/': (context) => const SplashScreen(),
+              '/ocean': (context) => const OceanScreen(),
+              '/throw': (context) => const ThrowScreen(),
+              '/chat': (context) => const ChatScreen(),
+              '/chats': (context) => const ChatListScreen(),
+              '/profile': (context) => const ProfileScreen(),
+              '/my-bottles': (context) => const MyBottlesScreen(),
+            },
+          );
         },
       ),
     );
   }
 }
 
-/// 启动页 - 等待用户初始化完成后跳转到海洋页面
-class SplashScreen extends StatelessWidget {
+/// 启动页
+/// 先检查年龄验证，再等待用户初始化完成
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
   @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  /// 是否已通过年龄验证
+  bool _ageVerified = false;
+
+  /// 是否已完成检查
+  bool _checked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAgeVerification();
+  }
+
+  /// 检查年龄验证状态
+  Future<void> _checkAgeVerification() async {
+    final verified = await AgeVerificationScreen.isAgeVerified();
+    if (mounted) {
+      setState(() {
+        _ageVerified = verified;
+        _checked = true;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // 未完成检查 - 显示空白启动页
+    if (!_checked) {
+      return _buildLoadingScreen();
+    }
+
+    // 未通过年龄验证 - 显示年龄验证页面
+    if (!_ageVerified) {
+      return AgeVerificationScreen(
+        onAgreed: () {
+          setState(() {
+            _ageVerified = true;
+          });
+        },
+      );
+    }
+
+    // 已通过年龄验证 - 显示正常启动页
+    return _buildLoadingScreen();
+  }
+
+  /// 构建加载启动页
+  Widget _buildLoadingScreen() {
     return Consumer<UserProvider>(
       builder: (context, userProvider, child) {
         // 加载中 - 显示启动动画

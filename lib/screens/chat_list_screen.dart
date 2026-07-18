@@ -6,10 +6,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
+import '../l10n/app_localizations.dart';
 import '../models/conversation.dart';
 import '../providers/user_provider.dart';
 import '../services/chat_service.dart';
+import '../services/report_service.dart';
 import '../widgets/nav_bar.dart';
+import '../widgets/report_dialog.dart';
 
 /// 对话列表页面
 class ChatListScreen extends StatefulWidget {
@@ -88,20 +91,21 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   /// 格式化时间显示
-  String _formatTime(DateTime? time) {
+  String _formatTime(DateTime? time, AppLocalizations l10n) {
     if (time == null) return '';
     final now = DateTime.now();
     final diff = now.difference(time);
 
-    if (diff.inMinutes < 1) return '刚刚';
-    if (diff.inHours < 1) return '${diff.inMinutes}分钟前';
-    if (diff.inDays < 1) return '${diff.inHours}小时前';
-    if (diff.inDays < 7) return '${diff.inDays}天前';
+    if (diff.inMinutes < 1) return l10n.justNow;
+    if (diff.inHours < 1) return l10n.minutesAgo(diff.inMinutes);
+    if (diff.inDays < 1) return l10n.hoursAgo(diff.inHours);
+    if (diff.inDays < 7) return l10n.daysAgo(diff.inDays);
     return '${time.month}/${time.day}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       decoration: getOceanBackground(),
       child: Scaffold(
@@ -115,7 +119,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 child: Row(
                   children: [
                     Text(
-                      '对话',
+                      l10n.chatTab,
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
                   ],
@@ -157,6 +161,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   /// 构建空状态
   Widget _buildEmptyState() {
+    final l10n = AppLocalizations.of(context)!;
     // 用ListView包裹，使下拉刷新在空状态下仍可触发
     return ListView(
       children: [
@@ -171,12 +176,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                '还没有对话',
+                l10n.noConversations,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
               Text(
-                '去捞一个瓶子吧',
+                l10n.goCatchBottle,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -188,6 +193,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   /// 构建对话项
   Widget _buildConversationItem(Conversation conversation) {
+    final l10n = AppLocalizations.of(context)!;
     final currentUser = context.read<UserProvider>().currentUser;
     final userId = currentUser?.id ?? '';
     final partnerNickname = conversation.getPartnerNickname(userId);
@@ -253,7 +259,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                _formatTime(conversation.lastMessageAt),
+                _formatTime(conversation.lastMessageAt, l10n),
                 style: const TextStyle(color: textHint, fontSize: 11),
               ),
               if (showUnread) ...[
@@ -295,6 +301,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   /// 显示对话操作菜单（长按）
   Future<void> _showConversationOptions(Conversation conversation) async {
+    final l10n = AppLocalizations.of(context)!;
     final result = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: cardColor,
@@ -317,10 +324,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
               ),
               const SizedBox(height: 16),
               ListTile(
+                leading: const Icon(Icons.flag_outlined, color: Colors.redAccent),
+                title: Text(
+                  l10n.report,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+                onTap: () => Navigator.pop(context, 'report'),
+              ),
+              ListTile(
                 leading: const Icon(Icons.delete, color: Colors.redAccent),
-                title: const Text(
-                  '删除对话',
-                  style: TextStyle(color: Colors.redAccent),
+                title: Text(
+                  l10n.deleteConversation,
+                  style: const TextStyle(color: Colors.redAccent),
                 ),
                 onTap: () => Navigator.pop(context, 'delete'),
               ),
@@ -333,31 +348,69 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
     if (result == 'delete') {
       await _deleteConversation(conversation);
+    } else if (result == 'report') {
+      await _reportConversation(conversation);
+    }
+  }
+
+  /// 举报对话中的对方用户
+  Future<void> _reportConversation(Conversation conversation) async {
+    final l10n = AppLocalizations.of(context)!;
+    final currentUser = context.read<UserProvider>().currentUser;
+    if (currentUser == null) return;
+
+    // 对方ID = 对话中非当前用户的那一方
+    final partnerId = conversation.user1Id == currentUser.id
+        ? conversation.user2Id
+        : conversation.user1Id;
+
+    if (partnerId.isEmpty) return;
+
+    // 对方昵称用于描述
+    final partnerNickname = conversation.getPartnerNickname(currentUser.id);
+    final description = '$partnerNickname 的对话';
+
+    final success = await showReportDialogAndSubmit(
+      context: context,
+      reporterId: currentUser.id,
+      reportedId: partnerId,
+      targetType: ReportTargetType.conversation,
+      targetId: conversation.id,
+      targetDescription: description,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? l10n.reportSubmitted : l10n.operationFailed),
+        ),
+      );
     }
   }
 
   /// 删除对话
   Future<void> _deleteConversation(Conversation conversation) async {
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
           backgroundColor: cardColor,
-          title: const Text('删除对话', style: TextStyle(color: textPrimary)),
-          content: const Text(
-            '确定删除这个对话吗？对话中的所有消息都会被删除。',
-            style: TextStyle(color: textSecondary),
+          title: Text(l10n.deleteConversation, style: const TextStyle(color: textPrimary)),
+          content: Text(
+            l10n.deleteConversationConfirm,
+            style: const TextStyle(color: textSecondary),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
+              child: Text(l10n.cancel),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text(
-                '删除',
-                style: TextStyle(color: Colors.redAccent),
+              child: Text(
+                l10n.delete,
+                style: const TextStyle(color: Colors.redAccent),
               ),
             ),
           ],
@@ -378,7 +431,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       });
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('删除失败，请重试')),
+        SnackBar(content: Text(l10n.operationFailed)),
       );
     }
   }

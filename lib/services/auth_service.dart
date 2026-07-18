@@ -159,4 +159,113 @@ class AuthService {
       };
     }
   }
+
+  /// 删除账号及全部相关数据
+  ///
+  /// 对应需求文档 GDPR / COPPA 等法规要求的"删除账号"功能
+  /// 后端通过 delete_account RPC 实现：
+  /// - 删除 users 表中的用户记录
+  /// - 级联删除该用户的瓶子、对话、消息、举报记录（ON DELETE CASCADE）
+  ///
+  /// 删除成功后，同时清除本地的设备ID缓存，让下次启动时生成新用户
+  ///
+  /// [userId] 要删除的用户ID
+  /// 返回是否删除成功
+  Future<bool> deleteAccount(String userId) async {
+    final client = SupabaseService.instance.client;
+
+    try {
+      // 优先尝试调用 delete_account RPC（推荐方式）
+      try {
+        final result = await client.rpc(
+          'delete_account',
+          params: {'p_user_id': userId},
+        );
+        final success = result == true;
+        if (success) {
+          await _clearLocalDeviceId();
+        }
+        return success;
+      } catch (_) {
+        // RPC 不存在时回退到直接 DELETE
+        final response = await client
+            .from('users')
+            .delete()
+            .eq('id', userId)
+            .select();
+
+        final success = (response as List).isNotEmpty;
+        if (success) {
+          await _clearLocalDeviceId();
+        }
+        return success;
+      }
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 清除本地设备ID缓存
+  /// 删除账号后调用，让下次启动应用时生成新的用户身份
+  Future<void> _clearLocalDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keyDeviceId);
+  }
+
+  /// 导出用户的全部个人数据副本（GDPR 数据可携带权）
+  ///
+  /// 返回包含用户资料、瓶子、对话、消息和举报记录的 Map，
+  /// 调用方可使用 jsonEncode 转换为 JSON 字符串。
+  Future<Map<String, dynamic>?> exportUserData(String userId) async {
+    final client = SupabaseService.instance.client;
+
+    try {
+      // 1. 用户基本资料
+      final userResponse = await client
+          .from('users')
+          .select()
+          .eq('id', userId)
+          .maybeSingle();
+
+      // 2. 用户扔出的瓶子
+      final bottlesResponse = await client
+          .from('bottles')
+          .select()
+          .eq('sender_id', userId)
+          .order('created_at', ascending: false);
+
+      // 3. 用户作为参与方的对话
+      final conversationsResponse = await client
+          .from('conversations')
+          .select()
+          .or('user1_id.eq.$userId,user2_id.eq.$userId')
+          .order('created_at', ascending: false);
+
+      // 4. 用户发送的消息
+      final messagesResponse = await client
+          .from('messages')
+          .select()
+          .eq('sender_id', userId)
+          .order('created_at', ascending: false)
+          .limit(500);
+
+      // 5. 用户提交的举报记录
+      final reportsResponse = await client
+          .from('reports')
+          .select()
+          .eq('reporter_id', userId)
+          .order('created_at', ascending: false);
+
+      return {
+        'exported_at': DateTime.now().toIso8601String(),
+        'user': userResponse ?? <String, dynamic>{},
+        'bottles': bottlesResponse,
+        'conversations': conversationsResponse,
+        'messages': messagesResponse,
+        'reports': reportsResponse,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
 }

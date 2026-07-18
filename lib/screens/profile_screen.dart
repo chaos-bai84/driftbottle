@@ -2,10 +2,13 @@
 /// 显示和编辑用户信息、查看每日配额
 library;
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
 import '../config/constants.dart';
+import '../l10n/app_localizations.dart';
 import '../providers/user_provider.dart';
 import '../widgets/nav_bar.dart';
 import 'privacy_policy_screen.dart';
@@ -60,6 +63,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// 是否正在保存
   bool _isSaving = false;
+
+  /// 是否正在导出数据
+  bool _isExporting = false;
 
   @override
   void initState() {
@@ -285,6 +291,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Container(
       decoration: getOceanBackground(),
       child: Scaffold(
@@ -303,7 +310,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              userProvider.error ?? '加载失败，请重试',
+                              userProvider.error ?? l10n.operationFailed,
                               style: const TextStyle(color: textSecondary),
                               textAlign: TextAlign.center,
                             ),
@@ -313,7 +320,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: primaryColor,
                               ),
-                              child: const Text('重试'),
+                              child: Text(l10n.operationFailed),
                             ),
                           ],
                         ),
@@ -328,7 +335,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Row(
                       children: [
                         Text(
-                          '我的',
+                          l10n.profileTab,
                           style: Theme.of(context).textTheme.headlineMedium,
                         ),
                       ],
@@ -469,6 +476,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
+                        // 我的瓶子入口
+                        Container(
+                          decoration: getCardDecoration(),
+                          child: ListTile(
+                            leading: const Icon(
+                              Icons.sailing_outlined,
+                              color: secondaryColor,
+                            ),
+                            title: const Text(
+                              '我的瓶子',
+                              style: TextStyle(color: textPrimary),
+                            ),
+                            subtitle: const Text(
+                              '查看你扔出的瓶子状态',
+                              style: TextStyle(color: textSecondary, fontSize: 12),
+                            ),
+                            trailing: const Icon(
+                              Icons.chevron_right,
+                              color: textHint,
+                            ),
+                            onTap: () {
+                              Navigator.pushNamed(context, '/my-bottles');
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // 导出数据入口
+                        Container(
+                          decoration: getCardDecoration(),
+                          child: ListTile(
+                            leading: const Icon(
+                              Icons.download_outlined,
+                              color: secondaryColor,
+                            ),
+                            title: const Text(
+                              '导出我的数据',
+                              style: TextStyle(color: textPrimary),
+                            ),
+                            subtitle: const Text(
+                              '获取你的个人数据副本',
+                              style: TextStyle(color: textSecondary, fontSize: 12),
+                            ),
+                            trailing: _isExporting
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      color: secondaryColor,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.chevron_right,
+                                    color: textHint,
+                                  ),
+                            onTap: _isExporting ? null : _exportUserData,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         // 隐私政策入口
                         Container(
                           decoration: getCardDecoration(),
@@ -496,6 +562,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
+                        // 删除账号入口
+                        Container(
+                          decoration: getCardDecoration(),
+                          child: ListTile(
+                            leading: const Icon(
+                              Icons.delete_forever_outlined,
+                              color: Colors.redAccent,
+                            ),
+                            title: const Text(
+                              '删除账号',
+                              style: TextStyle(color: Colors.redAccent),
+                            ),
+                            subtitle: const Text(
+                              '永久删除你的账号及全部数据',
+                              style: TextStyle(color: textSecondary, fontSize: 12),
+                            ),
+                            trailing: const Icon(
+                              Icons.chevron_right,
+                              color: textHint,
+                            ),
+                            onTap: _confirmDeleteAccount,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
                         // 版本号
                         Center(
                           child: Text(
@@ -519,6 +609,246 @@ class _ProfileScreenState extends State<ProfileScreen> {
         bottomNavigationBar: const NavBar(currentIndex: 2),
       ),
     );
+  }
+
+  /// 导出用户数据副本
+  Future<void> _exportUserData() async {
+    final userProvider = context.read<UserProvider>();
+
+    setState(() => _isExporting = true);
+    final data = await userProvider.exportUserData();
+    if (mounted) {
+      setState(() => _isExporting = false);
+    }
+
+    if (data == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('导出失败，请检查网络后重试')),
+        );
+      }
+      return;
+    }
+
+    final bottles = data['bottles'] as List? ?? [];
+    final conversations = data['conversations'] as List? ?? [];
+    final messages = data['messages'] as List? ?? [];
+    final reports = data['reports'] as List? ?? [];
+
+    if (mounted) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: cardColor,
+            title: const Text(
+              '导出个人数据',
+              style: TextStyle(color: textPrimary),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '数据副本已准备好，点击下方按钮可复制完整 JSON 数据。',
+                  style: TextStyle(color: textSecondary, fontSize: 14),
+                ),
+                const SizedBox(height: 16),
+                _buildExportStat('漂流瓶', bottles.length),
+                _buildExportStat('对话', conversations.length),
+                _buildExportStat('消息', messages.length),
+                _buildExportStat('举报', reports.length),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('关闭'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final jsonString = const JsonEncoder.withIndent('  ')
+                      .convert(data);
+                  await Clipboard.setData(ClipboardData(text: jsonString));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已复制到剪贴板')),
+                    );
+                    Navigator.pop(context);
+                  }
+                },
+                child: const Text('复制完整数据'),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  /// 构建导出数据摘要项
+  Widget _buildExportStat(String label, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: textSecondary, fontSize: 14),
+          ),
+          const Spacer(),
+          Text(
+            '$count',
+            style: const TextStyle(
+              color: textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 确认删除账号对话框（第一层确认）
+  Future<void> _confirmDeleteAccount() async {
+    final userProvider = context.read<UserProvider>();
+    final currentUser = userProvider.currentUser;
+    if (currentUser == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: const Text(
+            '删除账号',
+            style: TextStyle(color: Colors.redAccent),
+          ),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '即将永久删除你的账号及全部相关数据，此操作不可恢复：',
+                style: TextStyle(color: textPrimary, fontSize: 14),
+              ),
+              SizedBox(height: 12),
+              Text(
+                '· 你的所有漂流瓶将被删除\n'
+                '· 你的所有对话和消息将被删除\n'
+                '· 你提交的举报记录将被删除\n'
+                '· 你的昵称、国家、语言等资料将被清除',
+                style: TextStyle(color: textSecondary, fontSize: 13, height: 1.6),
+              ),
+              SizedBox(height: 12),
+              Text(
+                '删除后，本设备将作为新用户重新开始。',
+                style: TextStyle(color: textSecondary, fontSize: 12),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+              child: const Text('继续删除'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    // 第二层确认：输入"删除"二字才能继续
+    final doubleConfirmed = await _confirmByTypingDelete();
+    if (doubleConfirmed != true) return;
+
+    // 执行删除
+    final success = await userProvider.deleteAccount();
+
+    if (!mounted) return;
+
+    if (success) {
+      // 删除成功，跳转到启动页重新初始化
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('账号已删除，正在重新初始化...')),
+      );
+      // 跳转到根路由（SplashScreen 会重新初始化用户）
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/',
+        (Route<dynamic> route) => false,
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('删除失败，请检查网络后重试')),
+      );
+    }
+  }
+
+  /// 第二层确认：要求用户输入"删除"二字
+  Future<bool> _confirmByTypingDelete() async {
+    final controller = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: cardColor,
+          title: const Text(
+            '最终确认',
+            style: TextStyle(color: Colors.redAccent),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '请输入"删除"二字以最终确认操作：',
+                style: TextStyle(color: textPrimary, fontSize: 14),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: const TextStyle(color: textPrimary),
+                decoration: const InputDecoration(
+                  hintText: '删除',
+                  hintStyle: TextStyle(color: textHint),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: cardBorderColor),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.redAccent),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () {
+                final text = controller.text.trim();
+                Navigator.pop(context, text == '删除');
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+              child: const Text('确认删除'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    return result ?? false;
   }
 
   /// 构建编辑项

@@ -2,7 +2,7 @@
 /// 使用Provider管理当前用户信息和配额
 library;
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../config/constants.dart';
@@ -28,8 +28,14 @@ class UserProvider extends ChangeNotifier {
     'translate': 0,
   };
 
+  /// 当前应用界面语言
+  Locale _locale = const Locale('zh');
+
   /// 获取当前用户
   User? get currentUser => _currentUser;
+
+  /// 获取当前应用界面语言
+  Locale get currentLocale => _locale;
 
   /// 是否正在加载
   bool get isLoading => _isLoading;
@@ -77,6 +83,7 @@ class UserProvider extends ChangeNotifier {
       final user = await _authService.registerWithDevice();
       if (user != null) {
         _currentUser = user;
+        _locale = _parseLocale(user.language);
         _quotas = await _authService.getUserQuotas(user.id);
       } else {
         _error = '登录失败，请检查网络或后端配置';
@@ -126,9 +133,61 @@ class UserProvider extends ChangeNotifier {
     );
 
     if (success) {
+      if (language != null && language.isNotEmpty) {
+        _locale = _parseLocale(language);
+      }
       await refreshUser();
+      notifyListeners();
     }
 
     return success;
+  }
+
+  /// 切换应用界面语言
+  /// 同时会同步更新用户资料中的 language 字段
+  Future<bool> setLanguage(String language) async {
+    final success = await updateProfile(language: language);
+    return success;
+  }
+
+  /// 将语言代码转换为 Locale
+  static Locale _parseLocale(String? language) {
+    switch (language?.toLowerCase()) {
+      case 'en':
+        return const Locale('en');
+      case 'ja':
+        return const Locale('ja');
+      case 'ko':
+        return const Locale('ko');
+      case 'zh':
+      default:
+        return const Locale('zh');
+    }
+  }
+
+  /// 删除账号及全部相关数据
+  ///
+  /// 删除成功后会清除本地状态，应用应回到启动页重新初始化
+  Future<bool> deleteAccount() async {
+    if (_currentUser == null) return false;
+
+    final success = await _authService.deleteAccount(_currentUser!.id);
+
+    if (success) {
+      // 清除本地状态
+      _currentUser = null;
+      _quotas = {'throw': 0, 'catch': 0, 'translate': 0};
+      _error = null;
+      notifyListeners();
+    }
+
+    return success;
+  }
+
+  /// 导出当前用户的全部个人数据副本
+  /// 返回 Map，调用方可使用 jsonEncode 转换为 JSON 字符串
+  Future<Map<String, dynamic>?> exportUserData() async {
+    if (_currentUser == null) return null;
+    return _authService.exportUserData(_currentUser!.id);
   }
 }
