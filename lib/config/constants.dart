@@ -34,10 +34,10 @@ const int dailyTranslateLimit = 20;
 // ==================== 新用户限制 ====================
 
 /// 新用户每日扔瓶子上限
-const int newUserThrowLimit = 1;
+const int newUserThrowLimit = 20;
 
 /// 新用户每日捞瓶子上限
-const int newUserCatchLimit = 2;
+const int newUserCatchLimit = 20;
 
 /// 新用户限制持续时长（注册后24小时内）
 const Duration newUserRestrictionDuration = Duration(hours: 24);
